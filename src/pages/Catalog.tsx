@@ -254,12 +254,11 @@ function ImportDialog({
     if (!file) return;
     setBusy(true);
     try {
-      const r = await importLocalImage(file, "");
+      const r = await importLocalImage(file, {});
       await useApp.getState().refreshSystems();
       await useApp.getState().refreshStorage();
       onOpenChange(false);
-      if (r.kind === "system") window.location.assign(`/console/${r.meta.id}`);
-      else toast("info", "ISO stored — attach it from the console Media menu.");
+      window.location.assign(`/console/${r.meta.id}`);
     } catch (e) {
       toast("error", String(e).slice(0, 140));
     } finally {
@@ -272,8 +271,9 @@ function ImportDialog({
         <DialogHeader>
           <DialogTitle>Import image</DialogTitle>
           <DialogDescription>
-            Raw ext4/disk images (.img, .raw, optionally .gz) become machines; .iso files are
-            attached via the console Media menu. i686 only.
+            Any .iso / .img / .raw (optionally .gz) becomes a bootable machine stored in your
+            browser. Great for Windows, Android-x86, or any OS you legally own. i686 and
+            32-bit guests run best; 64-bit/ARM needs a future QEMU backend.
           </DialogDescription>
         </DialogHeader>
         <input

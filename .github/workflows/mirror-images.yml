@@ -22,11 +22,21 @@ jobs:
           mkdir -p dist
           node - << 'EOF' > urls.txt
           const m = require('./pipeline/mirror.json');
-          for (const x of m.mirrors) console.log(x.file + '\t' + x.url);
+          for (const x of m.mirrors) console.log(x.file + '\t' + x.url + '\t' + (x.unzip || ''));
           EOF
-          while IFS=$'\t' read -r file url; do
+          while IFS=$'\t' read -r file url unzip; do
             echo "::group::$file"
             curl -fL --retry 3 -m 1800 -o "dist/$file" "$url" || echo "::warning::failed $file"
+            if [ -n "$unzip" ]; then
+              echo "extracting $unzip from $file"
+              mkdir -p dist/_x && (unzip -o "dist/$file" -d dist/_x >/dev/null 2>&1 || true)
+              if [ -f "dist/_x/$unzip" ]; then
+                mv -f "dist/_x/$unzip" "dist/$file"
+                rm -rf dist/_x
+              else
+                echo "::warning::$unzip not found in archive; keeping original"
+              fi
+            fi
             echo "::endgroup::"
           done < urls.txt
           for entry in $(node -pe 'require("./pipeline/mirror.json").optional.map(o=>o.file+"|"+o.url).join(" ")'); do

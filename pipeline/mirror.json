@@ -10,6 +10,15 @@
     {
       "file": "alpine-virt-x86.iso",
       "url": "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86/alpine-virt-3.20.3-x86.iso"
+    },
+    {
+      "file": "archlinux32.iso",
+      "url": "https://mirror.math.princeton.edu/pub/archlinux32/archisos/archlinux32-2024.07.10-i686.iso"
+    },
+    {
+      "file": "reactos.iso",
+      "url": "https://downloads.sourceforge.net/project/reactos/ReactOS%200.4.15/ReactOS-0.4.15-release-iso.zip",
+      "unzip": "ReactOS-0.4.15-release.iso"
     }
   ],
   "optional": [

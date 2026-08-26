@@ -141,30 +141,46 @@ export async function materializeDisk(id: string, sizeBytes: number): Promise<Ar
   return await readAsset(id, "hda", sizeBytes);
 }
 
+export interface ImportOpts {
+  label?: string;
+  role?: AssetRole;
+  display?: "serial" | "canvas";
+  family?: OsFamily;
+  hw?: Partial<HardwareConfig>;
+}
+
+// Create a bootable machine from a user-supplied image (covers Windows,
+// Android-x86, or any other .iso/.img the user legally owns). The buffer is
+// stored chunked in IndexedDB and booted exactly like a catalog install.
 export async function importLocalImage(
   file: File,
-  label: string,
-  hw?: Partial<HardwareConfig>,
-): Promise<{ kind: "system"; meta: SystemMeta } | { kind: "iso"; id: string }> {
+  opts: ImportOpts = {},
+): Promise<{ kind: "system"; meta: SystemMeta }> {
   const buf = await file.arrayBuffer();
   const isGz = /\.gz$/i.test(file.name);
   const raw = isGz ? await gunzip(buf) : buf;
 
-  if (/\.iso$/i.test(file.name)) {
-    return { kind: "iso", id: await putIso(file.name, raw) };
-  }
+  const role: AssetRole = opts.role ?? (/\.iso$/i.test(file.name) ? "cdrom" : "hda");
 
   const id = `import-${Date.now()}`;
-  await writeAsset(id, "hda", raw);
+  await writeAsset(id, role, raw);
+  const display = opts.display ?? "canvas";
   const meta: SystemMeta = {
     id,
-    label: label || file.name.replace(/\.(img|raw)?(\.gz)?$/i, ""),
-    family: "glibc",
+    label: opts.label || file.name.replace(/\.(iso|img|raw|gz)$/i, ""),
+    family: opts.family ?? "other",
     version: "local",
     installedAt: Date.now(),
     sizeBytes: raw.byteLength,
-    hardware: { ...DEFAULT_HW, ...hw },
-    display: "canvas",
+    hardware: {
+      ...DEFAULT_HW,
+      acpi: true,
+      netBackend: "fetch",
+      ...opts.hw,
+    },
+    display,
+    assets: { [role]: raw.byteLength },
+    lastBootMode: display === "canvas" ? "desktop" : "terminal",
   };
   await putSystem(meta);
   return { kind: "system", meta };

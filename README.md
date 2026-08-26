@@ -31,20 +31,31 @@ All systems are **i686** — a hard property of browser CPU emulation (v86 execu
 
 | System | Download | Boots in | Package manager | Desktop |
 |---|---|---|---|---|
-| Buildroot Tiny | ~11 MB | ~10 s | busybox | — |
-| Alpine Linux x86 | ~42 MB | ~30 s | apk | Xfbdev + jwm |
-| Debian i386 minbase | ~78 MB | ~60 s | apt | Xorg + jwm |
-| Arch Linux 32 | ~120 MB | ~90 s | pacman | Xorg + jwm |
+| Buildroot Classic | ~6 MB | ~8 s | busybox | — |
+| Buildroot Plus / Dev | ~8–10 MB | ~10 s | busybox | — |
+| Alpine Linux x86 | ~47 MB | ~30 s | apk | Xfbdev + jwm |
+| FreeDOS 1.2 | ~1 MB | ~3 s | — | — |
+| KolibriOS | ~2 MB | ~2 s | — | built-in GUI |
+| Arch Linux 32 | ~796 MB | ~90 s | pacman | Xorg + jwm |
+| ReactOS | ~320 MB | ~60 s | — | Win32-style GUI |
+
+**Bring your own:** use *Library → New from file* (or *Catalog → Import*) to boot any
+`.iso` / `.img` you legally own — Windows, Android-x86, a custom Linux — entirely in
+your browser. The image is stored in IndexedDB; nothing is uploaded.
 
 ## Features
 
 - **Terminal mode** — serial console into xterm.js: fast, precise, copy-paste friendly
-- **Desktop mode** — VGA/VBE canvas with jwm window manager and captured mouse; pick per boot
-- **Full hardware control** — RAM slider, VGA memory, disk resize, ACPI, speaker,
-  JIT toggle, NIC type (virtio/NE2000), ethernet backend, CORS proxy, DoH
+- **Desktop mode** — VGA/VBE canvas with captured mouse; pick per boot
+- **Display controls** — integer/pixelated zoom (slider + `+`/`-` keys), *Fit to window*,
+  and true Fullscreen on the VGA pane; VGA memory bumped to 16 MB so guests can select
+  up to 1280×1024 via VBE
+- **Full hardware control** — RAM slider (snapped to a power of 2), VGA memory, disk resize,
+  ACPI, speaker, JIT toggle, NIC type (virtio/NE2000), ethernet backend, CORS proxy, DoH
 - **Snapshots** — autosaved (gzip) every 2 min and on tab hide; resume instantly, discard anytime
 - **Wake lock** — screen stays awake while a VM runs (auto re-acquire)
-- **Import** — bring any local i686 raw image or .iso; hot-insert CDs at runtime
+- **Import / bring-your-own** — upload any local `.iso` / `.img` / `.raw` (`.gz` auto-extracted)
+  as a bootable machine; hot-insert CDs at runtime from the Media menu
 - **Browser LAN** — multiple MalMox tabs form one virtual ethernet segment via BroadcastChannel
 - **Installable PWA** — offline app shell after first visit
 
@@ -59,6 +70,14 @@ sandbox's egress model. MalMox therefore ships the complete set of legal transpo
    TCP/UDP internet with DNS-over-HTTPS
 
 The emulated NIC itself is genuine hardware emulation the guest kernel drives natively.
+
+## Engine roadmap — 64-bit & ARM
+
+MalMox's `EmulatorEngine` contract (`src/core/engine/types.ts`) is satisfied today by
+`V86Engine` (32-bit x86 only). To run **x86-64 Debian, modern Windows, or Android (ARM)**
+a second backend — QEMU compiled to WebAssembly — is planned. The interface, UI, store and
+persistence are already engine-agnostic; the blocking work is the (large) QEMU→WASM build
+itself. See [`docs/qemu-wasm.md`](docs/qemu-wasm.md) for the spike result and recipe.
 
 ## Development
 
@@ -84,8 +103,13 @@ Deployments go to Vercel via `.github/workflows/deploy-vercel.yml`.
 
 ## Licenses
 
-v86 BSD-2-Clause · SeaBIOS LGPLv3 · VGABIOS LGPLv2/Linux-contrib · Linux kernel GPLv2
-(distro images retain upstream licenses; source links in-app under Settings → About).
+v86 BSD-2 · SeaBIOS LGPLv3 · VGABIOS LGPL · Linux GPLv2 · distro images retain upstream
+licenses. Mirrored sources are attributed per image in the catalog.
+
+**Bring-your-own images** (Windows, historical OSes, etc.) are uploaded by you and stored
+locally — MalMox never redistributes them. For historical operating-system images, see
+[WinWorldPC](https://winworldpc.com/library/operating-systems); you are responsible for
+complying with each image's license.
 
 ---
 

@@ -1,4 +1,4 @@
-export type OsFamily = "busybox" | "musl" | "glibc" | "pacman" | "dos" | "asm";
+export type OsFamily = "busybox" | "musl" | "glibc" | "pacman" | "dos" | "asm" | "other";
 export type AssetRole = "cdrom" | "hda" | "floppy" | "bzimage" | "initrd";
 
 export interface BootAsset {
@@ -68,13 +68,13 @@ export const RAM_PRESETS = [64, 128, 256, 512, 1024];
 
 export const DEFAULT_HW: HardwareConfig = {
   ramMB: 256,
-  vgaMB: 8,
+  vgaMB: 16,
   diskMB: 512,
   acpi: false,
   speaker: false,
   disableJit: false,
   nicType: "virtio",
-  netBackend: "off",
+  netBackend: "fetch",
   gatewayUrl: "",
   corsProxy: "",
   doh: true,
@@ -87,4 +87,5 @@ export const FAMILY_LABEL: Record<OsFamily, string> = {
   pacman: "pacman",
   dos: "DOS",
   asm: "asm",
+  other: "other",
 };

@@ -1,5 +1,6 @@
 import { V86 } from "v86";
 import type { SystemMeta, BootMode, HardwareConfig } from "./types";
+import type { EmulatorEngine, Resolution } from "./engine/types";
 import { gzip, gunzip } from "./binutil";
 import { loadSnapshotGz, saveSnapshotGz, clearSnapshot } from "./db";
 import { Terminal } from "@xterm/xterm";
@@ -54,7 +55,7 @@ function netDevice(hw: HardwareConfig) {
   }
 }
 
-export class MalmoxEngine {
+export class MalmoxEngine implements EmulatorEngine {
   private emulator: V86 | null = null;
   private wakeLock: WakeLockSentinel | null = null;
   private autosaveTimer: number | null = null;
@@ -219,7 +220,7 @@ export class MalmoxEngine {
     }
   }
 
-  async snapshot(final: boolean): Promise<void> {
+  async snapshot(final: boolean = false): Promise<void> {
     if (!this.emulator || this.poweringDown && !final) return;
     if (!this.emulator.is_running()) return;
     try {
@@ -314,6 +315,34 @@ export class MalmoxEngine {
 
   lockMouse(): void {
     this.emulator?.lock_mouse();
+  }
+
+  setScale(zoom: number): void {
+    const z = Math.max(0.25, Math.min(8, zoom));
+    try {
+      this.emulator?.screen_set_scale(z, z);
+    } catch {
+      /* noop */
+    }
+  }
+
+  fitToContainer(): void {
+    const container = this.handles.screenContainer;
+    const canvas = container?.querySelector("canvas");
+    if (!canvas || !canvas.width || !canvas.height || !container) return;
+    const cw = container.clientWidth || canvas.width;
+    const ch = container.clientHeight || canvas.height;
+    const scale = Math.max(
+      1,
+      Math.floor(Math.min(cw / canvas.width, ch / canvas.height)),
+    );
+    this.setScale(scale);
+  }
+
+  getResolution(): Resolution | null {
+    const canvas = this.handles.screenContainer?.querySelector("canvas");
+    if (!canvas || !canvas.width) return null;
+    return { w: canvas.width, h: canvas.height };
   }
 
   isRunning(): boolean {

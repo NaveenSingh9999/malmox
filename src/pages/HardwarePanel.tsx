@@ -114,21 +114,35 @@ export function HardwarePanel({
           <SelectContent>
             <SelectItem value="off">offline</SelectItem>
             <SelectItem value="lan">browser LAN — cross-tab switch</SelectItem>
-            <SelectItem value="fetch">fetch — serverless HTTP(S)</SelectItem>
-            <SelectItem value="wisp">gateway — wisp:// endpoint</SelectItem>
+            <SelectItem value="fetch">fetch — serverless HTTP(S) web</SelectItem>
+            <SelectItem value="wisp">gateway — wisp:// full TCP/UDP</SelectItem>
           </SelectContent>
         </Select>
+        <p className="text-[10px] leading-tight text-faint">
+          <span className="text-ink">fetch</span> gives real web access out of the box.
+          <span className="text-ink"> wisp</span> gives full TCP/UDP (SSH, etc.) but needs a
+          gateway URL below.
+        </p>
       </div>
 
       {(hw.netBackend === "wisp" || hw.netBackend === "fetch") && (
         <>
           {hw.netBackend === "wisp" && (
-            <input
-              placeholder="wisps://host:port"
-              value={hw.gatewayUrl}
-              onChange={(e) => patch({ gatewayUrl: e.target.value })}
-              className="h-8 w-full rounded-md border border-line-strong bg-panel-2 px-2.5 text-[13px] text-ink placeholder:text-faint focus:border-accent"
-            />
+            <>
+              <input
+                placeholder="wisp://your-gateway-host:8080"
+                value={hw.gatewayUrl}
+                onChange={(e) => patch({ gatewayUrl: e.target.value })}
+                className="h-8 w-full rounded-md border border-line-strong bg-panel-2 px-2.5 text-[13px] text-ink placeholder:text-faint focus:border-accent"
+              />
+              <button
+                type="button"
+                onClick={() => patch({ netBackend: "wisp", gatewayUrl: "wss://wisp.mercurywork.sh/" })}
+                className="self-start rounded border border-line-strong px-2 py-0.5 font-mono text-[10px] text-faint transition-colors hover:text-ink"
+              >
+                use public relay
+              </button>
+            </>
           )}
           <label className="flex items-center justify-between text-[13px] text-dim">
             DNS over HTTPS

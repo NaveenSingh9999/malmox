@@ -1,8 +1,9 @@
-import { Link } from "react-router-dom";
-import { Play, Trash2, RotateCcw, Boxes, MoreHorizontal } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
+import { Play, Trash2, RotateCcw, Boxes, MoreHorizontal, Upload } from "lucide-react";
+import { useState } from "react";
 import { useApp } from "@/store/app";
 import { FAMILY_LABEL } from "@/core/types";
-import { uninstall } from "@/core/install";
+import { uninstall, importLocalImage } from "@/core/install";
 import { clearSnapshot } from "@/core/db";
 import {
   PageHeader,
@@ -15,6 +16,8 @@ import { Button } from "@/components/ui/button";
 
 export default function LibraryPage() {
   const { systems, refreshSystems, refreshStorage } = useApp();
+  const navigate = useNavigate();
+  const [showImport, setShowImport] = useState(false);
 
   async function remove(id: string, label: string) {
     if (!confirm(`Delete "${label}"? Disk data and snapshots are erased.`)) return;
@@ -23,12 +26,40 @@ export default function LibraryPage() {
     toast("info", `${label} deleted`);
   }
 
+  async function handleImport(file: File, label: string, role: string, display: string) {
+    toast("info", `Storing ${file.name} locally…`);
+    try {
+      const res = await importLocalImage(file, {
+        label: label || undefined,
+        role: role as never,
+        display: display as "serial" | "canvas",
+      });
+      await refreshSystems();
+      setShowImport(false);
+      navigate(`/console/${res.meta.id}`);
+    } catch (e) {
+      toast("error", `Import failed: ${String(e).slice(0, 120)}`);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-5xl px-6 py-6">
       <PageHeader
         title="Machines"
         description="Installed systems and their live configuration. Snapshots restore sessions instantly after a reload."
+        action={
+          <Button size="sm" onClick={() => setShowImport(true)}>
+            <Upload className="h-3 w-3" /> New from file
+          </Button>
+        }
       />
+
+      {showImport && (
+        <ImportModal
+          onClose={() => setShowImport(false)}
+          onImport={handleImport}
+        />
+      )}
 
       {!systems.length ? (
         <EmptyState
@@ -139,4 +170,95 @@ function age(ts: number): string {
   const h = Math.round(m / 60);
   if (h < 24) return `${h}h`;
   return `${Math.round(h / 24)}d`;
+}
+
+function ImportModal({
+  onClose,
+  onImport,
+}: {
+  onClose: () => void;
+  onImport: (file: File, label: string, role: string, display: string) => void;
+}) {
+  const [file, setFile] = useState<File | null>(null);
+  const [label, setLabel] = useState("");
+  const [role, setRole] = useState("cdrom");
+  const [display, setDisplay] = useState("canvas");
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-line bg-panel p-5 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-sm font-semibold">New machine from file</h3>
+        <p className="mt-1 text-[12px] text-dim">
+          Boot any OS you legally own (Windows, Android-x86, a custom Linux) entirely
+          in your browser. The image is stored locally in IndexedDB — nothing is
+          uploaded.
+        </p>
+
+        <label className="mt-4 block text-[11px] font-medium text-dim">Image file</label>
+        <input
+          type="file"
+          accept=".iso,.img,.raw,.gz"
+          onChange={(e) => {
+            const f = e.target.files?.[0] ?? null;
+            setFile(f);
+            if (f && !label) setLabel(f.name.replace(/\.(iso|img|raw|gz)$/i, ""));
+          }}
+          className="mt-1 w-full rounded-md border border-line bg-panel-2 px-2 py-1.5 text-[13px]"
+        />
+
+        <label className="mt-3 block text-[11px] font-medium text-dim">Name</label>
+        <input
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="My Windows 2000"
+          className="mt-1 w-full rounded-md border border-line bg-panel-2 px-2 py-1.5 text-[13px]"
+        />
+
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[11px] font-medium text-dim">Boot as</label>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="mt-1 w-full rounded-md border border-line bg-panel-2 px-2 py-1.5 text-[13px]"
+            >
+              <option value="cdrom">CD-ROM (iso)</option>
+              <option value="hda">Hard disk (img)</option>
+              <option value="floppy">Floppy (img)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-dim">Display</label>
+            <select
+              value={display}
+              onChange={(e) => setDisplay(e.target.value)}
+              className="mt-1 w-full rounded-md border border-line bg-panel-2 px-2 py-1.5 text-[13px]"
+            >
+              <option value="canvas">Graphical (GUI)</option>
+              <option value="serial">Serial (text)</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="outline" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            disabled={!file}
+            onClick={() => file && onImport(file, label, role, display)}
+          >
+            Create & boot
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
 }

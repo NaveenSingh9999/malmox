@@ -63,6 +63,44 @@
       "version": "3.20.3"
     },
     {
+      "id": "arch-linux-32",
+      "label": "Arch Linux 32",
+      "category": "linux",
+      "family": "pacman",
+      "description": "Arch Linux for i686 (32-bit). Pacman, AUR, Xorg. Boots to a live shell; install to disk with archinstall.",
+      "sizeMB": 796,
+      "gui": true,
+      "display": "canvas",
+      "boot": "iso",
+      "assets": [
+        {
+          "role": "cdrom",
+          "file": "archlinux32.iso"
+        }
+      ],
+      "upstream": "archlinux32.org (i686 mirror)",
+      "version": "2024.07.10"
+    },
+    {
+      "id": "reactos",
+      "label": "ReactOS",
+      "category": "retro",
+      "family": "other",
+      "description": "Open-source, Windows-compatible OS (GPL). Runs many Win32 apps and feels like Windows 2000/XP. Free to redistribute.",
+      "sizeMB": 320,
+      "gui": true,
+      "display": "canvas",
+      "boot": "iso",
+      "assets": [
+        {
+          "role": "cdrom",
+          "file": "reactos.iso"
+        }
+      ],
+      "upstream": "reactos.org (SourceForge)",
+      "version": "0.4.15"
+    },
+    {
       "id": "freedos",
       "label": "FreeDOS 1.2",
       "category": "retro",

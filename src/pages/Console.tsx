@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useApp } from "@/store/app";
 import { MalmoxEngine } from "@/core/engine";
+import type { EmulatorEngine } from "@/core/engine/types";
 import type { BootMode } from "@/core/types";
 import { getSystem, putSystem, getIso, listIsos, putIso } from "@/core/db";
 import { loadBootAssets } from "@/core/install";
@@ -30,10 +31,11 @@ type Pane = "serial" | "display" | "split";
 export default function ConsolePage() {
   const { id = "" } = useParams();
   const meta = useApp((s) => s.systems.find((x) => x.id === id));
-  const [engine, setEngine] = useState<MalmoxEngine | null>(null);
+  const [engine, setEngine] = useState<EmulatorEngine | null>(null);
   const [status, setStatus] = useState<"idle" | "booting" | "running" | "stopped" | "error">("idle");
   const [pane, setPane] = useState<Pane>("split");
   const [fontSize, setFontSize] = useState(13);
+  const [zoom, setZoom] = useState(1);
   const [snapAge, setSnapAge] = useState<number>(meta?.snapshotAt ?? 0);
   const [showHw, setShowHw] = useState(false);
   const [isos, setIsos] = useState<Awaited<ReturnType<typeof listIsos>>>([]);
@@ -42,7 +44,7 @@ export default function ConsolePage() {
   const screenRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const engineRef = useRef<MalmoxEngine | null>(null);
+  const engineRef = useRef<EmulatorEngine | null>(null);
 
   const term = useMemo(() => {
     if (termRef.current) return termRef.current;
@@ -126,6 +128,38 @@ export default function ConsolePage() {
     term.options.fontSize = fontSize;
     fitRef.current?.fit();
   }, [fontSize, term, pane]);
+
+  // Auto-fit the guest framebuffer to the pane when a desktop OS is running.
+  const fit = useCallback(() => {
+    if (meta?.display === "canvas") engineRef.current?.fitToContainer();
+  }, [meta?.display]);
+  useEffect(() => {
+    window.addEventListener("resize", fit);
+    return () => window.removeEventListener("resize", fit);
+  }, [fit]);
+
+  // Fit desktop guests once they're actually rendering.
+  useEffect(() => {
+    if (status === "running" && meta?.display === "canvas") {
+      const t = window.setTimeout(() => engineRef.current?.fitToContainer(), 400);
+      return () => window.clearTimeout(t);
+    }
+  }, [status, meta?.display]);
+
+  // Zoom keyboard shortcuts (+ / -) on the display pane.
+  const onZoomKey = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key !== "+" && e.key !== "-" && e.key !== "=") return;
+      const nz = e.key === "-" ? Math.max(0.5, zoom - 0.5) : Math.min(4, zoom + 0.5);
+      setZoom(nz);
+      engineRef.current?.setScale(nz);
+    },
+    [zoom],
+  );
+  useEffect(() => {
+    window.addEventListener("keydown", onZoomKey);
+    return () => window.removeEventListener("keydown", onZoomKey);
+  }, [onZoomKey]);
 
   const pasteSerial = useCallback(
     (e: ClipboardEvent) => {
@@ -262,6 +296,15 @@ export default function ConsolePage() {
             items={[
               { label: "Fullscreen (display)", onSelect: () => engine?.fullscreen() },
               { label: "Screenshot → download", onSelect: () => downloadShot(engine) },
+              {
+                label: `Zoom ${Math.round(zoom * 100)}%  (use +/−)`,
+                onSelect: () => {
+                  const nz = zoom >= 3 ? 1 : Math.min(4, Math.round((zoom + 0.5) * 2) / 2);
+                  setZoom(nz);
+                  engine?.setScale(nz);
+                },
+              },
+              { label: "Fit to window", onSelect: () => engine?.fitToContainer() },
               { label: "Font −", onSelect: () => setFontSize((f) => Math.max(9, f - 1)) },
               { label: "Font +", onSelect: () => setFontSize((f) => Math.min(24, f + 1)) },
             ]}
@@ -323,7 +366,7 @@ export default function ConsolePage() {
           }}
           className={cn(
             "min-w-0 flex-1 bg-black",
-            showDisplay ? "flex justify-center [&>canvas]:max-h-full" : "hidden",
+            showDisplay ? "flex items-center justify-center" : "hidden",
           )}
           onMouseDown={() => running && showDisplay && engine?.lockMouse()}
         />
