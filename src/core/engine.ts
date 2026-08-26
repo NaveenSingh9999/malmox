@@ -1,5 +1,5 @@
 import { V86 } from "v86";
-import type { SystemMeta, BootMode, HardwareConfig, AssetRole } from "./types";
+import type { SystemMeta, BootMode, HardwareConfig } from "./types";
 import { gzip, gunzip } from "./binutil";
 import { loadSnapshotGz, saveSnapshotGz, clearSnapshot } from "./db";
 import { Terminal } from "@xterm/xterm";
@@ -50,6 +50,11 @@ export class MalmoxEngine {
   private emulator: V86 | null = null;
   private wakeLock: WakeLockSentinel | null = null;
   private autosaveTimer: number | null = null;
+  private haltTimer: number | null = null;
+  private lastCounter = 0;
+  private stallTicks = 0;
+  private poweringDown = false;
+  private poweredOff = false;
   private visibilityHandler = () => {
     void this.reacquireWakeLock();
   };
@@ -88,7 +93,7 @@ export class MalmoxEngine {
       disable_jit: hw.disableJit,
       screen: {
         container: this.handles.screenContainer,
-        use_graphical_text: this.mode === "desktop",
+        use_graphical_text: false,
       },
       serial_console: {
         type: "xtermjs",
@@ -103,7 +108,6 @@ export class MalmoxEngine {
     } else {
       const a = this.assets;
       if (a.cdrom && a.hda) {
-        // hybrid boot — disk first, ISO available in the drive
         opts.hda = { buffer: a.hda };
         opts.cdrom = { buffer: a.cdrom };
         opts.boot_order = 0x123; // CD → HD
@@ -111,13 +115,12 @@ export class MalmoxEngine {
         opts.hda = { buffer: a.hda };
       } else if (a.cdrom) {
         opts.cdrom = { buffer: a.cdrom };
-      } else if (a.bzimage) {
-        opts.bzimage = { buffer: a.bzimage };
       }
       if (a.bzimage) {
+        opts.bzimage = { buffer: a.bzimage };
         opts.cmdline =
           this.mode === "desktop"
-            ? `root=/dev/sda rw console=tty0 systemd.unit=graphical.target`
+            ? `root=/dev/sda rw quiet console=tty0`
             : `root=/dev/sda rw console=ttyS0 tsc=reliable`;
         if (a.initrd) opts.initrd = { buffer: a.initrd };
       }
@@ -135,14 +138,47 @@ export class MalmoxEngine {
       this.events.onStatus?.("running");
       void this.acquireWakeLock();
       this.startAutosave();
+      this.startHaltWatch();
     });
     this.emulator.add_listener("emulator-stopped", () => {
       this.events.onStatus?.("stopped");
       this.stopAutosave();
+      this.stopHaltWatch();
       void this.releaseWakeLock();
     });
     document.addEventListener("visibilitychange", this.visibilityHandler);
     window.addEventListener("pagehide", this.pageHide);
+  }
+
+  // Guests without ACPI (our default) simply halt on `poweroff`. v86 never
+  // emits emulator-stopped in that case — detect the frozen instruction
+  // counter and treat it as a clean halt so the UI and snapshots behave.
+  private startHaltWatch() {
+    this.stopHaltWatch();
+    this.lastCounter = -1;
+    this.stallTicks = 0;
+    this.haltTimer = window.setInterval(() => {
+      if (!this.emulator?.is_running()) return;
+      const c = this.emulator.get_instruction_counter();
+      if (c === this.lastCounter) {
+        this.stallTicks++;
+        if (this.stallTicks >= 3) {
+          this.stallTicks = 0;
+          this.events.onStatus?.("stopped"); // halted by guest
+          void this.snapshot(true);
+        }
+      } else {
+        this.stallTicks = 0;
+        this.lastCounter = c;
+      }
+    }, 1500);
+  }
+
+  private stopHaltWatch() {
+    if (this.haltTimer !== null) {
+      clearInterval(this.haltTimer);
+      this.haltTimer = null;
+    }
   }
 
   private pageHide = () => {
@@ -164,21 +200,47 @@ export class MalmoxEngine {
   }
 
   async snapshot(final: boolean): Promise<void> {
-    if (!this.emulator?.is_running()) return;
+    if (!this.emulator || this.poweringDown && !final) return;
+    if (!this.emulator.is_running()) return;
     try {
       const state = await this.emulator.save_state();
       const gz = await gzip(state);
       await saveSnapshotGz(this.meta.id, state, gz);
       this.events.onSnapshot?.(Date.now());
-      if (final) this.emulator.stop();
-    } catch {
-      /* best-effort */
+      if (final) {
+        this.poweringDown = true;
+        await this.emulator.stop();
+      }
+    } catch (e) {
+      if (
+        e instanceof DOMException &&
+        /quota|storage/i.test(String(e?.name ?? "") + String(e))
+      ) {
+        this.events.onError?.(
+          "Storage full — snapshot not saved. Free space in Settings.",
+        );
+      }
+      /* other snapshot failures stay best-effort */
     }
   }
 
   async powerOff(): Promise<void> {
+    if (this.poweredOff) return;
+    this.poweredOff = true;
+    this.poweringDown = true;
     this.stopAutosave();
-    await this.snapshot(true);
+    this.stopHaltWatch();
+    try {
+      if (this.emulator?.is_running()) {
+        const state = await this.emulator.save_state();
+        const gz = await gzip(state);
+        await saveSnapshotGz(this.meta.id, state, gz);
+        this.events.onSnapshot?.(Date.now());
+        await this.emulator.stop();
+      }
+    } catch {
+      /* best-effort */
+    }
     try {
       await this.emulator?.destroy();
     } catch {

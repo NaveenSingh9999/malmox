@@ -2,13 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   Power,
-  RotateCcw,
-  Maximize,
   Disc,
   Columns2,
   SquareTerminal,
   Monitor,
-  Keyboard,
   Camera,
   Save,
   Loader2,
@@ -24,13 +21,9 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { Button } from "@/components/ui/button";
-import {
-  Menu,
-  StatusPill,
-  toast,
-} from "@/components/chrome";
-import { cn } from "@/lib/utils";
+import { Menu, StatusPill, toast } from "@/components/chrome";
 import { HardwarePanel } from "@/pages/HardwarePanel";
+import { cn } from "@/lib/utils";
 
 type Pane = "serial" | "display" | "split";
 
@@ -49,7 +42,7 @@ export default function ConsolePage() {
   const screenRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const bootedRef = useRef(false);
+  const engineRef = useRef<MalmoxEngine | null>(null);
 
   const term = useMemo(() => {
     if (termRef.current) return termRef.current;
@@ -72,27 +65,29 @@ export default function ConsolePage() {
     return t;
   }, []);
 
-  // boot once per machine id
   useEffect(() => {
-    if (!meta || bootedRef.current) return;
-    bootedRef.current = true;
+    if (!meta || engineRef.current) return;
     let dead = false;
 
     (async () => {
+      // resolve catalog entry for asset roles (imports fall back to hda)
       const entry = await loadManifest()
         .then((m) => m.systems.find((e) => e.id === id))
         .catch(() => undefined);
-      const defaultPane: Pane =
-        meta.display === "canvas" ? "display" : "serial";
-      setPane(defaultPane);
+      if (dead || !meta) return;
 
-      const roles = (entry?.assets ?? [{ role: "hda" as const }]).map((a) => a.role);
+      const roles = entry ? entry.assets.map((a) => a.role) : (["hda"] as const);
       const assets = await loadBootAssets(id, roles as never, meta.assets ?? {});
       if (dead) return;
 
+      const mode: BootMode =
+        (localStorage.getItem(`malmox.mode.${id}`) as BootMode | null) ??
+        (meta.display === "canvas" ? "desktop" : "terminal");
+      setPane(mode === "desktop" ? "display" : "serial");
+
       const eng = new MalmoxEngine(
         meta,
-        "terminal",
+        mode,
         assets,
         { term, fit: fitRef.current!, screenContainer: screenRef.current! },
         {
@@ -106,6 +101,7 @@ export default function ConsolePage() {
           },
         },
       );
+      engineRef.current = eng;
       setEngine(eng);
       requestAnimationFrame(() => fitRef.current?.fit());
       await eng.start();
@@ -113,7 +109,8 @@ export default function ConsolePage() {
 
     return () => {
       dead = true;
-      void engine?.powerOff();
+      void engineRef.current?.powerOff();
+      engineRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
@@ -133,21 +130,14 @@ export default function ConsolePage() {
   const pasteSerial = useCallback(
     (e: ClipboardEvent) => {
       const text = e.clipboardData?.getData("text");
-      if (text && engine?.isRunning()) engine.sendText(text);
+      if (text && engineRef.current?.isRunning()) engineRef.current.sendText(text);
     },
-    [engine],
+    [],
   );
   useEffect(() => {
     window.addEventListener("paste", pasteSerial);
     return () => window.removeEventListener("paste", pasteSerial);
   }, [pasteSerial]);
-
-  useEffect(
-    () => () => {
-      void engine?.powerOff();
-    },
-    [engine],
-  );
 
   if (!meta) {
     return (
@@ -185,7 +175,6 @@ export default function ConsolePage() {
 
         <div className="mx-1 h-4 w-px bg-line-strong" />
 
-        {/* pane switch */}
         <div className="flex overflow-hidden rounded-md border border-line-strong">
           {([
             ["serial", SquareTerminal],
@@ -214,7 +203,7 @@ export default function ConsolePage() {
           >
             <Zap className="h-3.5 w-3.5" />
           </button>
-          {/* media */}
+
           <Menu
             trigger={<IconBtn title="Media"><Disc className="h-3.5 w-3.5" /></IconBtn>}
             items={[
@@ -255,7 +244,6 @@ export default function ConsolePage() {
             }}
           />
 
-          {/* snapshot */}
           <Button
             variant="outline"
             size="sm"
@@ -269,48 +257,57 @@ export default function ConsolePage() {
             {snapAge ? `saved ${ageStr(snapAge)}` : "snapshot"}
           </Button>
 
-          {/* view */}
           <Menu
             trigger={<IconBtn title="View"><Camera className="h-3.5 w-3.5" /></IconBtn>}
             items={[
               { label: "Fullscreen (display)", onSelect: () => engine?.fullscreen() },
-              { label: "Screenshot → download", onSelect: downloadShot(engine) },
+              { label: "Screenshot → download", onSelect: () => downloadShot(engine) },
               { label: "Font −", onSelect: () => setFontSize((f) => Math.max(9, f - 1)) },
               { label: "Font +", onSelect: () => setFontSize((f) => Math.min(24, f + 1)) },
-              { label: "Keyboard shortcuts", onSelect: () => toast("info", "Ctrl+Shift+V paste · Ctrl+Alt+Del in Power menu") },
             ]}
           />
 
-          {/* power */}
           <Menu
             trigger={
-              <Button variant={running ? "danger" : "outline"} size="sm" disabled={status !== "running"}>
+              <Button
+                variant={running || status === "stopped" ? "danger" : "outline"}
+                size="sm"
+                disabled={!engine}
+              >
                 <Power className="h-3 w-3" /> Power
               </Button>
             }
             items={[
-              { label: "Shut down (ACPI-less stop)", danger: true, onSelect: () => void engine?.powerOff() },
-              { label: "Hard reset", onSelect: () => engine?.reset() },
+              {
+                label: "Shut down & save snapshot",
+                danger: true,
+                onSelect: () => void engine?.powerOff(),
+              },
+              { label: "Hard reset (reboot)", onSelect: () => engine?.reset() },
               { label: "Ctrl+Alt+Del", onSelect: () => engine?.ctrlAltDel() },
             ]}
           />
         </div>
       </div>
 
-      {/* panes */}
+      {/* panes — both hosts stay mounted forever; visibility is CSS-only so the
+          v86 containers are never swapped out from under the emulator */}
       <div className="relative flex min-h-0 flex-1">
-        {showSerial && (
-          <div
-            ref={(el) => {
-              if (el && !el.firstChild) {
-                term.open(el);
-                fitRef.current?.fit();
-              }
-              termElRef.current = el;
-            }}
-            className={cn("min-w-0 overflow-hidden p-1.5", pane === "split" && "w-1/2 border-r border-line")}
-          />
-        )}
+        <div
+          ref={(el) => {
+            if (el && !el.firstChild) {
+              term.open(el);
+              requestAnimationFrame(() => fitRef.current?.fit());
+            }
+            termElRef.current = el;
+          }}
+          className={cn(
+            "min-w-0 overflow-hidden p-1.5",
+            showSerial ? "block" : "hidden",
+            pane === "split" && "w-1/2 border-r border-line",
+            pane !== "split" && "w-full",
+          )}
+        />
         <div
           ref={(el) => {
             if (el && !el.dataset.ready) {
@@ -326,15 +323,19 @@ export default function ConsolePage() {
           }}
           className={cn(
             "min-w-0 flex-1 bg-black",
-            showDisplay ? "block" : "hidden",
-            showDisplay && "relative flex justify-center [&>div]:max-h-full [&>div]:overflow-hidden",
+            showDisplay ? "flex justify-center [&>canvas]:max-h-full" : "hidden",
           )}
-          onMouseDown={() => running && pane !== "serial" && engine?.lockMouse()}
+          onMouseDown={() => running && showDisplay && engine?.lockMouse()}
         />
-        {!showDisplay && <div hidden ref={screenRef} />}
+
+        {status === "booting" && (
+          <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md border border-line-strong bg-panel px-3 py-1 font-mono text-[11px] text-dim">
+            booting… <Loader2 className="inline h-2.5 w-2.5 animate-spin" />
+          </div>
+        )}
 
         {showHw && (
-          <div className="absolute right-3 top-12 z-40 max-h-[85%] w-80">
+          <div className="absolute right-3 top-3 z-40 max-h-[85%] w-80">
             <HardwarePanel metaId={meta.id} onClose={() => setShowHw(false)} />
           </div>
         )}
@@ -342,11 +343,13 @@ export default function ConsolePage() {
 
       {/* statusbar */}
       <div className="flex h-6 shrink-0 items-center gap-3 border-t border-line bg-panel/40 px-3 font-mono text-[10px] text-faint">
-        <span>{status === "booting" ? <>booting <Loader2 className="inline h-2.5 w-2.5 animate-spin" /></> : status}</span>
+        <span>{status}</span>
         <span>ram {meta.hardware.ramMB}M</span>
         <span>nic {meta.hardware.nicType}/{meta.hardware.netBackend}</span>
-        <span className="ml-auto hidden sm:inline">autosnapshot 120s · paste goes to serial</span>
-        <Keyboard className="h-3 w-3" />
+        {status === "stopped" && !running && (
+          <span className="text-warn">halted — snapshot saved · Power → reset to reboot</span>
+        )}
+        <span className="ml-auto hidden sm:inline">autosnapshot 120s · paste → serial</span>
       </div>
     </div>
   );
