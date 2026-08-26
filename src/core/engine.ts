@@ -8,6 +8,7 @@ import { FitAddon } from "@xterm/addon-fit";
 export interface BootAssets {
   cdrom?: ArrayBuffer;
   hda?: ArrayBuffer;
+  floppy?: ArrayBuffer;
   bzimage?: ArrayBuffer;
   initrd?: ArrayBuffer;
 }
@@ -22,6 +23,13 @@ export interface EngineEvents {
   onStatus?: (s: "booting" | "running" | "stopped" | "error") => void;
   onError?: (msg: string) => void;
   onSnapshot?: (at: number) => void;
+}
+
+const POW2_RAM = [32, 64, 128, 256, 512, 1024, 2048] as const;
+function pow2Ram(mb: number): number {
+  let best: number = POW2_RAM[0];
+  for (const v of POW2_RAM) if (Math.abs(v - mb) < Math.abs(best - mb)) best = v;
+  return best;
 }
 
 function netDevice(hw: HardwareConfig) {
@@ -69,7 +77,11 @@ export class MalmoxEngine {
 
   async start(): Promise<void> {
     this.events.onStatus?.("booting");
-    const hw = this.meta.hardware;
+
+    const hw = {
+      ...this.meta.hardware,
+      ramMB: pow2Ram(this.meta.hardware.ramMB),
+    };
 
     const snap = await loadSnapshotGz(this.meta.id);
     let initialState: { buffer: ArrayBuffer } | undefined;
@@ -93,13 +105,9 @@ export class MalmoxEngine {
       disable_jit: hw.disableJit,
       screen: {
         container: this.handles.screenContainer,
-        use_graphical_text: false,
+        use_graphical_text: this.mode === "desktop",
       },
-      serial_console: {
-        type: "xtermjs",
-        container: this.handles.term.element!,
-        xterm_lib: Terminal as unknown as Function,
-      },
+      serial_console: { type: "none" },
       net_device: netDevice(hw) ?? undefined,
     };
 
@@ -115,6 +123,10 @@ export class MalmoxEngine {
         opts.hda = { buffer: a.hda };
       } else if (a.cdrom) {
         opts.cdrom = { buffer: a.cdrom };
+      }
+      if (a.floppy) {
+        opts.fda = { buffer: a.floppy };
+        opts.boot_order = opts.boot_order ?? 0;
       }
       if (a.bzimage) {
         opts.bzimage = { buffer: a.bzimage };
@@ -133,6 +145,14 @@ export class MalmoxEngine {
       this.events.onError?.(String(e));
       return;
     }
+
+    const enc = new TextEncoder();
+    this.emulator.add_listener("serial0-output-byte", (b) => {
+      this.handles.term.write(Uint8Array.of(b));
+    });
+    this.handles.term.onData((d) => {
+      this.emulator?.serial_send_bytes(0, enc.encode(d));
+    });
 
     this.emulator.add_listener("emulator-started", () => {
       this.events.onStatus?.("running");

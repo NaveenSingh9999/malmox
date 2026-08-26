@@ -1,5 +1,5 @@
 export type OsFamily = "busybox" | "musl" | "glibc" | "pacman" | "dos" | "asm";
-export type AssetRole = "cdrom" | "hda" | "bzimage" | "initrd";
+export type AssetRole = "cdrom" | "hda" | "floppy" | "bzimage" | "initrd";
 
 export interface BootAsset {
   role: AssetRole;
