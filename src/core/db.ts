@@ -51,7 +51,7 @@ export async function deleteSystemCompletely(
 ): Promise<void> {
   const d = await db();
   await d.delete("systems", id);
-  await deleteDiskChunks(id);
+  await deleteSystemAssets(id);
   await d.delete("snapshots", `state:${id}`);
   await d.delete("snapshots", `stategz:${id}`);
 }
@@ -69,43 +69,49 @@ async function eachChunkKey(
   }
 }
 
-export async function writeDiskChunks(
+export async function writeAsset(
   id: string,
+  role: string,
   buffer: ArrayBuffer,
 ): Promise<void> {
   const d = await db();
   const store = new ChunkStore(ChunkStore.chunkCount(buffer.byteLength));
   const parts = store.split(buffer);
   for (let i = 0; i < parts.length; i++) {
-    await d.put("chunks", parts[i], store.key(`${id}:${i}`));
+    await d.put("chunks", parts[i], store.key(`${id}:${role}:${i}`));
   }
 }
 
-export async function readDiskChunks(
+export async function readAsset(
   id: string,
+  role: string,
   totalBytes: number,
 ): Promise<ArrayBuffer | null> {
   const d = await db();
   const count = ChunkStore.chunkCount(totalBytes);
-  const first = await d.get("chunks", new ChunkStore(count).key(`${id}:0`));
+  const first = await d.get("chunks", new ChunkStore(count).key(`${id}:${role}:0`));
   if (first === undefined) return null;
   const tx = d.transaction("chunks", "readonly");
   const parts: ArrayBuffer[] = [first];
   for (let i = 1; i < count; i++) {
-    const p = await tx.store.get(new ChunkStore(count).key(`${id}:${i}`));
+    const p = await tx.store.get(new ChunkStore(count).key(`${id}:${role}:${i}`));
     parts.push(p ?? new ArrayBuffer(CHUNK));
   }
   return new ChunkStore(count).join(parts, totalBytes);
 }
 
-export async function deleteDiskChunks(id: string): Promise<number> {
+export async function deleteSystemAssets(id: string): Promise<void> {
   const d = await db();
   const keys: IDBValidKey[] = [];
-  await eachChunkKey(`chunk:${id}:`, (k) => keys.push(k));
+  let cursor = await d.transaction("chunks").store.openCursor();
+  const prefix = `chunk:${id}:`;
+  while (cursor) {
+    if (String(cursor.key).startsWith(prefix)) keys.push(cursor.key);
+    cursor = await cursor.continue();
+  }
   const tx = d.transaction("chunks", "readwrite");
   for (const k of keys) await tx.store.delete(k);
   await tx.done;
-  return keys.length;
 }
 
 export async function saveSnapshotGz(

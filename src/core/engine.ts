@@ -1,10 +1,16 @@
 import { V86 } from "v86";
-import type { SystemMeta, BootMode, HardwareConfig } from "./types";
-import { materializeDisk } from "./install";
+import type { SystemMeta, BootMode, HardwareConfig, AssetRole } from "./types";
 import { gzip, gunzip } from "./binutil";
 import { loadSnapshotGz, saveSnapshotGz, clearSnapshot } from "./db";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
+
+export interface BootAssets {
+  cdrom?: ArrayBuffer;
+  hda?: ArrayBuffer;
+  bzimage?: ArrayBuffer;
+  initrd?: ArrayBuffer;
+}
 
 export interface EngineHandles {
   term: Terminal;
@@ -51,16 +57,14 @@ export class MalmoxEngine {
   constructor(
     private meta: SystemMeta,
     private mode: BootMode,
+    private assets: BootAssets,
     private handles: EngineHandles,
     private events: EngineEvents = {},
-    private bzimageBuf?: ArrayBuffer,
-    private initrdBuf?: ArrayBuffer,
   ) {}
 
   async start(): Promise<void> {
     this.events.onStatus?.("booting");
     const hw = this.meta.hardware;
-    const disk = await materializeDisk(this.meta.id, hw.diskMB * 1024 * 1024);
 
     const snap = await loadSnapshotGz(this.meta.id);
     let initialState: { buffer: ArrayBuffer } | undefined;
@@ -72,23 +76,16 @@ export class MalmoxEngine {
       }
     }
 
-    const cmdline =
-      this.mode === "desktop"
-        ? `root=/dev/sda rw quiet console=tty0 systemd.unit=graphical.target`
-        : `root=/dev/sda rw console=ttyS0 tsc=reliable`;
-
     const opts: ConstructorParameters<typeof V86>[0] = {
       wasm_path: "/emulator/v86.wasm",
       memory_size: hw.ramMB * 1024 * 1024,
       vga_memory_size: hw.vgaMB * 1024 * 1024,
       bios: { url: "/emulator/bios/seabios.bin" },
       vga_bios: { url: "/emulator/bios/vgabios.bin" },
-      hda: { buffer: disk },
       autostart: true,
       acpi: hw.acpi,
       disable_speaker: !hw.speaker,
       disable_jit: hw.disableJit,
-      boot_order: hw.bootOrder,
       screen: {
         container: this.handles.screenContainer,
         use_graphical_text: this.mode === "desktop",
@@ -99,17 +96,31 @@ export class MalmoxEngine {
         xterm_lib: Terminal as unknown as Function,
       },
       net_device: netDevice(hw) ?? undefined,
-      uart1: false,
-      uart2: false,
     };
 
     if (initialState) {
       opts.initial_state = initialState;
-    } else if (this.bzimageBuf && this.initrdBuf) {
-      opts.bzimage = { buffer: this.bzimageBuf };
-      opts.initrd = { buffer: this.initrdBuf };
-      opts.cmdline = cmdline;
-      opts.preserve_mac_from_state_image = false;
+    } else {
+      const a = this.assets;
+      if (a.cdrom && a.hda) {
+        // hybrid boot — disk first, ISO available in the drive
+        opts.hda = { buffer: a.hda };
+        opts.cdrom = { buffer: a.cdrom };
+        opts.boot_order = 0x123; // CD → HD
+      } else if (a.hda) {
+        opts.hda = { buffer: a.hda };
+      } else if (a.cdrom) {
+        opts.cdrom = { buffer: a.cdrom };
+      } else if (a.bzimage) {
+        opts.bzimage = { buffer: a.bzimage };
+      }
+      if (a.bzimage) {
+        opts.cmdline =
+          this.mode === "desktop"
+            ? `root=/dev/sda rw console=tty0 systemd.unit=graphical.target`
+            : `root=/dev/sda rw console=ttyS0 tsc=reliable`;
+        if (a.initrd) opts.initrd = { buffer: a.initrd };
+      }
     }
 
     try {
@@ -161,14 +172,18 @@ export class MalmoxEngine {
       this.events.onSnapshot?.(Date.now());
       if (final) this.emulator.stop();
     } catch {
-      /* snapshot best-effort */
+      /* best-effort */
     }
   }
 
   async powerOff(): Promise<void> {
     this.stopAutosave();
     await this.snapshot(true);
-    await this.emulator?.destroy();
+    try {
+      await this.emulator?.destroy();
+    } catch {
+      /* noop */
+    }
     this.emulator = null;
     await this.releaseWakeLock();
     document.removeEventListener("visibilitychange", this.visibilityHandler);
@@ -180,9 +195,7 @@ export class MalmoxEngine {
   }
 
   ctrlAltDel(): void {
-    this.emulator?.keyboard_send_scancodes([
-      0x1d, 0x38, 0x53, 0xd3, 0xb8, 0x9d,
-    ]);
+    this.emulator?.keyboard_send_scancodes([0x1d, 0x38, 0x53, 0xd3, 0xb8, 0x9d]);
   }
 
   fullscreen(): void {
@@ -219,10 +232,6 @@ export class MalmoxEngine {
 
   lockMouse(): void {
     this.emulator?.lock_mouse();
-  }
-
-  instructionCounter(): number {
-    return this.emulator?.get_instruction_counter() ?? 0;
   }
 
   isRunning(): boolean {

@@ -1,0 +1,21 @@
+{
+  "releaseTag": "images-v1",
+  "repo": "NaveenSingh9999/malmox-images",
+  "mirrors": [
+    { "file": "buildroot-classic.iso", "url": "https://copy.sh/v86/images/linux.iso" },
+    { "file": "buildroot-plus.iso", "url": "https://copy.sh/v86/images/linux3.iso" },
+    { "file": "buildroot-dev.iso", "url": "https://copy.sh/v86/images/linux4.iso" },
+    { "file": "freedos.img", "url": "https://copy.sh/v86/images/freedos722.img" },
+    { "file": "kolibri.img", "url": "https://copy.sh/v86/images/kolibri.img" },
+    {
+      "file": "alpine-virt-x86.iso",
+      "url": "https://dl-cdn.alpinelinux.org/alpine/v3.20/releases/x86/alpine-virt-3.20.3-x86.iso"
+    }
+  ],
+  "optional": [
+    {
+      "file": "tinycore.iso",
+      "url": "http://tinycorelinux.net/15.x/x86/release/Core-current.iso"
+    }
+  ]
+}

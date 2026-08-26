@@ -4,51 +4,52 @@ import {
   Power,
   RotateCcw,
   Maximize,
-  Camera,
   Disc,
+  Columns2,
   SquareTerminal,
   Monitor,
   Keyboard,
+  Camera,
+  Save,
+  Loader2,
   Zap,
 } from "lucide-react";
 import { useApp } from "@/store/app";
 import { MalmoxEngine } from "@/core/engine";
 import type { BootMode } from "@/core/types";
 import { getSystem, putSystem, getIso, listIsos, putIso } from "@/core/db";
-import { loadKernel } from "@/core/install";
+import { loadBootAssets } from "@/core/install";
+import { loadManifest } from "@/core/catalog";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  Menu,
+  StatusPill,
+  toast,
+} from "@/components/chrome";
+import { cn } from "@/lib/utils";
 import { HardwarePanel } from "@/pages/HardwarePanel";
-import { OS_META } from "@/core/types";
+
+type Pane = "serial" | "display" | "split";
 
 export default function ConsolePage() {
   const { id = "" } = useParams();
   const meta = useApp((s) => s.systems.find((x) => x.id === id));
   const [engine, setEngine] = useState<MalmoxEngine | null>(null);
   const [status, setStatus] = useState<"idle" | "booting" | "running" | "stopped" | "error">("idle");
-  const [mode, setMode] = useState<BootMode | null>(null);
-  const [bootDialog, setBootDialog] = useState(true);
+  const [pane, setPane] = useState<Pane>("split");
+  const [fontSize, setFontSize] = useState(13);
+  const [snapAge, setSnapAge] = useState<number>(meta?.snapshotAt ?? 0);
   const [showHw, setShowHw] = useState(false);
-  const [isoList, setIsoList] = useState<Awaited<ReturnType<typeof listIsos>>>([]);
+  const [isos, setIsos] = useState<Awaited<ReturnType<typeof listIsos>>>([]);
 
-  const termHostRef = useRef<HTMLDivElement | null>(null);
-  const screenHostRef = useRef<HTMLDivElement | null>(null);
+  const termElRef = useRef<HTMLDivElement | null>(null);
+  const screenRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-
-  useEffect(() => {
-    void listIsos().then(setIsoList);
-  }, []);
+  const bootedRef = useRef(false);
 
   const term = useMemo(() => {
     if (termRef.current) return termRef.current;
@@ -56,14 +57,12 @@ export default function ConsolePage() {
       fontFamily: '"JetBrains Mono", ui-monospace, monospace',
       fontSize: 13,
       cursorBlink: true,
-      allowProposedApi: true,
+      scrollback: 5000,
       theme: {
         background: "#0b0c0f",
         foreground: "#e6e8ee",
         cursor: "#5e6ad2",
         selectionBackground: "rgba(94,106,210,.35)",
-        black: "#0b0c0f",
-        brightBlack: "#5b6170",
       },
     });
     const fit = new FitAddon();
@@ -73,51 +72,75 @@ export default function ConsolePage() {
     return t;
   }, []);
 
+  // boot once per machine id
   useEffect(() => {
-    if (!meta || !mode || engine) return;
-    let cancelled = false;
-    async function boot() {
-      if (!meta) return;
-      await putSystem({ ...meta, lastBootMode: mode! });
-      const kernel = await loadKernel(meta.id).catch(() => null);
+    if (!meta || bootedRef.current) return;
+    bootedRef.current = true;
+    let dead = false;
+
+    (async () => {
+      const entry = await loadManifest()
+        .then((m) => m.systems.find((e) => e.id === id))
+        .catch(() => undefined);
+      const defaultPane: Pane =
+        meta.display === "canvas" ? "display" : "serial";
+      setPane(defaultPane);
+
+      const roles = (entry?.assets ?? [{ role: "hda" as const }]).map((a) => a.role);
+      const assets = await loadBootAssets(id, roles as never, meta.assets ?? {});
+      if (dead) return;
+
       const eng = new MalmoxEngine(
-        { ...meta, lastBootMode: mode! },
-        mode!,
+        meta,
+        "terminal",
+        assets,
+        { term, fit: fitRef.current!, screenContainer: screenRef.current! },
         {
-          term,
-          fit: fitRef.current!,
-          screenContainer: screenHostRef.current!,
-        },
-        {
-          onStatus: (s) => setStatus(s),
-          onError: () => setStatus("error"),
-          onSnapshot: async () => {
+          onStatus: setStatus,
+          onError: (m) => toast("error", m.slice(0, 160)),
+          onSnapshot: async (at) => {
+            setSnapAge(at);
             const sys = await getSystem(meta.id);
-            if (sys) await putSystem({ ...sys, snapshotAt: Date.now() });
+            if (sys) await putSystem({ ...sys, snapshotAt: at });
             await useApp.getState().refreshSystems();
           },
         },
-        kernel?.bzimage,
-        kernel?.initrd,
       );
-      if (cancelled) return;
       setEngine(eng);
-      await eng.start();
       requestAnimationFrame(() => fitRef.current?.fit());
-    }
+      await eng.start();
+    })();
 
-    void boot();
     return () => {
-      cancelled = true;
+      dead = true;
+      void engine?.powerOff();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [meta, mode]);
+  }, [id]);
 
   useEffect(() => {
+    void listIsos().then(setIsos);
     const onResize = () => fitRef.current?.fit();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  useEffect(() => {
+    term.options.fontSize = fontSize;
+    fitRef.current?.fit();
+  }, [fontSize, term, pane]);
+
+  const pasteSerial = useCallback(
+    (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData("text");
+      if (text && engine?.isRunning()) engine.sendText(text);
+    },
+    [engine],
+  );
+  useEffect(() => {
+    window.addEventListener("paste", pasteSerial);
+    return () => window.removeEventListener("paste", pasteSerial);
+  }, [pasteSerial]);
 
   useEffect(
     () => () => {
@@ -126,26 +149,24 @@ export default function ConsolePage() {
     [engine],
   );
 
-  const chooseMode = useCallback((m: BootMode) => {
-    setBootDialog(false);
-    setMode(m);
-  }, []);
-
   if (!meta) {
     return (
       <div className="flex h-full items-center justify-center text-sm text-dim">
-        System not found.
+        Machine not found.
       </div>
     );
   }
 
   const running = status === "running";
+  const showSerial = pane === "serial" || pane === "split";
+  const showDisplay = pane === "display" || pane === "split";
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-line px-4 py-2">
+    <div className="flex h-full min-h-0 flex-col">
+      {/* toolbar */}
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-line bg-panel/60 px-3">
         <span
-          className="h-2 w-2 rounded-full transition-colors"
+          className="h-2 w-2 rounded-full"
           style={{
             background:
               status === "running"
@@ -158,211 +179,205 @@ export default function ConsolePage() {
           }}
         />
         <span className="text-[13px] font-medium">{meta.label}</span>
-        <Badge tone="dim">{OS_META[meta.os].pkg}</Badge>
-        <Badge tone={running ? "ok" : "dim"}>{status}</Badge>
+        <StatusPill tone={running ? "ok" : status === "booting" ? "warn" : "dim"}>
+          {status}
+        </StatusPill>
+
+        <div className="mx-1 h-4 w-px bg-line-strong" />
+
+        {/* pane switch */}
+        <div className="flex overflow-hidden rounded-md border border-line-strong">
+          {([
+            ["serial", SquareTerminal],
+            ["display", Monitor],
+            ["split", Columns2],
+          ] as const).map(([p, Icon]) => (
+            <button
+              key={p}
+              title={p}
+              onClick={() => setPane(p)}
+              className={cn(
+                "flex h-7 w-8 items-center justify-center transition-colors",
+                pane === p ? "bg-accent/20 text-accent" : "text-faint hover:text-ink",
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+            </button>
+          ))}
+        </div>
 
         <div className="ml-auto flex items-center gap-1">
-          <Button variant="ghost" size="icon" title="Hardware settings" onClick={() => setShowHw(!showHw)}>
+          <button
+            title="Machine settings"
+            onClick={() => setShowHw(!showHw)}
+            className="flex h-7 w-7 items-center justify-center rounded-md text-dim transition-colors hover:bg-panel-2 hover:text-ink"
+          >
             <Zap className="h-3.5 w-3.5" />
-          </Button>
-          <IsoMenu
-            isos={isoList}
-            onInsert={async (isoId) => {
+          </button>
+          {/* media */}
+          <Menu
+            trigger={<IconBtn title="Media"><Disc className="h-3.5 w-3.5" /></IconBtn>}
+            items={[
+              ...isos.map((i) => ({
+                label: `Insert ${i.name}`,
+                onSelect: async () => {
+                  const iso = await getIso(i.id);
+                  if (iso) {
+                    await engine?.insertIso(iso.buffer);
+                    toast("ok", `${i.name} inserted`);
+                  }
+                },
+              })),
+              {
+                label: "Upload .iso…",
+                onSelect: () => document.getElementById("malmox-iso-input")?.click(),
+              },
+              { label: "Eject CD-ROM", onSelect: () => engine?.ejectIso() },
+            ]}
+          />
+          <input
+            id="malmox-iso-input"
+            type="file"
+            accept=".iso"
+            hidden
+            onChange={async (e) => {
+              const f = e.target.files?.[0];
+              if (!f) return;
+              toast("info", "Attaching ISO…");
+              const buf = await f.arrayBuffer();
+              const isoId = await putIso(f.name, buf);
               const iso = await getIso(isoId);
-              if (iso) await engine?.insertIso(iso.buffer);
-            }}
-            onEject={() => engine?.ejectIso()}
-            onUpload={async (file) => {
-              const buf = await file.arrayBuffer();
-              const isoId = await putIso(file.name, buf);
-              setIsoList(await listIsos());
-              const iso = await getIso(isoId);
-              if (iso) await engine?.insertIso(iso.buffer);
+              if (iso) {
+                await engine?.insertIso(iso.buffer);
+                setIsos(await listIsos());
+                toast("ok", `${f.name} attached`);
+              }
             }}
           />
+
+          {/* snapshot */}
           <Button
-            variant="ghost"
-            size="icon"
-            title="Screenshot"
-            onClick={() => engine?.screenshot()}
-          >
-            <Camera className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" title="Fullscreen (desktop)" onClick={() => engine?.fullscreen()}>
-            <Maximize className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" title="Ctrl+Alt+Del" onClick={() => engine?.ctrlAltDel()}>
-            <Keyboard className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" title="Reset VM" onClick={() => engine?.reset()}>
-            <RotateCcw className="h-3.5 w-3.5" />
-          </Button>
-          <Button
-            variant={running ? "danger" : "outline"}
+            variant="outline"
             size="sm"
-            onClick={() => (running ? void engine?.powerOff() : undefined)}
+            disabled={!running}
+            title="Snapshot now — autosaves every 2 min and on tab hide"
+            onClick={() =>
+              void engine?.snapshot(false).then(() => toast("ok", "Snapshot saved"))
+            }
           >
-            <Power className="h-3 w-3" /> {running ? "Shutdown" : "Off"}
+            <Save className="h-3 w-3" />
+            {snapAge ? `saved ${ageStr(snapAge)}` : "snapshot"}
           </Button>
+
+          {/* view */}
+          <Menu
+            trigger={<IconBtn title="View"><Camera className="h-3.5 w-3.5" /></IconBtn>}
+            items={[
+              { label: "Fullscreen (display)", onSelect: () => engine?.fullscreen() },
+              { label: "Screenshot → download", onSelect: downloadShot(engine) },
+              { label: "Font −", onSelect: () => setFontSize((f) => Math.max(9, f - 1)) },
+              { label: "Font +", onSelect: () => setFontSize((f) => Math.min(24, f + 1)) },
+              { label: "Keyboard shortcuts", onSelect: () => toast("info", "Ctrl+Shift+V paste · Ctrl+Alt+Del in Power menu") },
+            ]}
+          />
+
+          {/* power */}
+          <Menu
+            trigger={
+              <Button variant={running ? "danger" : "outline"} size="sm" disabled={status !== "running"}>
+                <Power className="h-3 w-3" /> Power
+              </Button>
+            }
+            items={[
+              { label: "Shut down (ACPI-less stop)", danger: true, onSelect: () => void engine?.powerOff() },
+              { label: "Hard reset", onSelect: () => engine?.reset() },
+              { label: "Ctrl+Alt+Del", onSelect: () => engine?.ctrlAltDel() },
+            ]}
+          />
         </div>
       </div>
 
-      <div className="relative min-h-0 flex-1">
-        {/* both hosts stay mounted — v86 needs them at construction time */}
-        <div
-          className={mode === "desktop" ? "hidden" : "absolute inset-0 overflow-hidden p-2"}
-        >
+      {/* panes */}
+      <div className="relative flex min-h-0 flex-1">
+        {showSerial && (
           <div
             ref={(el) => {
               if (el && !el.firstChild) {
                 term.open(el);
                 fitRef.current?.fit();
               }
-              termHostRef.current = el;
+              termElRef.current = el;
             }}
-            className="h-full w-full"
+            className={cn("min-w-0 overflow-hidden p-1.5", pane === "split" && "w-1/2 border-r border-line")}
           />
-        </div>
+        )}
         <div
           ref={(el) => {
             if (el && !el.dataset.ready) {
               el.innerHTML = "";
               const text = document.createElement("div");
-              text.style.whiteSpace = "pre";
-              text.style.font = "14px monospace";
-              text.style.lineHeight = "14px";
+              text.style.cssText = "white-space:pre;font:14px monospace;line-height:14px";
               const canvas = document.createElement("canvas");
               canvas.style.display = "none";
               el.append(text, canvas);
               el.dataset.ready = "1";
             }
-            screenHostRef.current = el;
+            screenRef.current = el;
           }}
-          className={
-            mode === "desktop"
-              ? "absolute inset-0 flex items-center justify-center bg-black"
-              : "hidden"
-          }
+          className={cn(
+            "min-w-0 flex-1 bg-black",
+            showDisplay ? "block" : "hidden",
+            showDisplay && "relative flex justify-center [&>div]:max-h-full [&>div]:overflow-hidden",
+          )}
+          onMouseDown={() => running && pane !== "serial" && engine?.lockMouse()}
         />
+        {!showDisplay && <div hidden ref={screenRef} />}
 
-        {status === "booting" && (
-          <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-md border border-line-strong bg-panel px-3 py-1 font-mono text-[11px] text-dim">
-            booting {meta.label}…
-          </div>
-        )}
-        {status === "error" && (
-          <div className="absolute inset-x-0 top-3 mx-auto w-fit rounded-md border border-bad/40 bg-bad/10 px-3 py-1.5 text-xs text-bad">
-            Emulator failed to start — try lower RAM or reload.
-          </div>
-        )}
         {showHw && (
-          <div className="absolute right-3 top-3 max-h-[85%] w-80 overflow-y-auto">
-            <HardwarePanel metaId={meta.id} onClose={() => setShowHw(false)} live={engine ?? undefined} />
+          <div className="absolute right-3 top-12 z-40 max-h-[85%] w-80">
+            <HardwarePanel metaId={meta.id} onClose={() => setShowHw(false)} />
           </div>
         )}
       </div>
 
-      <Dialog open={bootDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Boot {meta.label}</DialogTitle>
-            <DialogDescription>
-              Pick a console for this session. You can switch by rebooting the machine.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              className="group rounded-md border border-line-strong p-4 text-left transition-colors hover:border-accent"
-              onClick={() => chooseMode("terminal")}
-            >
-              <SquareTerminal className="mb-2 h-5 w-5 text-accent" />
-              <div className="text-[13px] font-semibold">Terminal</div>
-              <div className="mt-0.5 text-xs leading-relaxed text-dim">
-                Serial console. Fast, precise, ideal for shell work.
-              </div>
-            </button>
-            <button
-              className="group rounded-md border border-line-strong p-4 text-left transition-colors hover:border-accent"
-              onClick={() => chooseMode("desktop")}
-            >
-              <Monitor className="mb-2 h-5 w-5 text-accent" />
-              <div className="text-[13px] font-semibold">Desktop</div>
-              <div className="mt-0.5 text-xs leading-relaxed text-dim">
-                VGA display with jwm window manager and mouse.
-              </div>
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* statusbar */}
+      <div className="flex h-6 shrink-0 items-center gap-3 border-t border-line bg-panel/40 px-3 font-mono text-[10px] text-faint">
+        <span>{status === "booting" ? <>booting <Loader2 className="inline h-2.5 w-2.5 animate-spin" /></> : status}</span>
+        <span>ram {meta.hardware.ramMB}M</span>
+        <span>nic {meta.hardware.nicType}/{meta.hardware.netBackend}</span>
+        <span className="ml-auto hidden sm:inline">autosnapshot 120s · paste goes to serial</span>
+        <Keyboard className="h-3 w-3" />
+      </div>
     </div>
   );
 }
 
-function IsoMenu({
-  isos,
-  onInsert,
-  onEject,
-  onUpload,
-}: {
-  isos: { id: string; name: string; bytes: number; at: number }[];
-  onInsert: (id: string) => Promise<void>;
-  onEject: () => void;
-  onUpload: (f: File) => Promise<void>;
-}) {
-  const [open, setOpen] = useState(false);
+function downloadShot(engine: MalmoxEngine | null) {
+  return () => {
+    const img = engine?.screenshot();
+    if (!img) return toast("error", "Screenshot needs the Display pane");
+    const url = (img as HTMLImageElement).src;
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `malmox-${Date.now()}.png`;
+    a.click();
+  };
+}
+
+function IconBtn({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="relative">
-      <Button variant="ghost" size="icon" title="CD-ROM" onClick={() => setOpen(!open)}>
-        <Disc className="h-3.5 w-3.5" />
-      </Button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-50 mt-1 w-64 rounded-md border border-line-strong bg-panel p-2 shadow-xl">
-            <div className="px-1 pb-1.5 pt-0.5 text-[10px] uppercase tracking-widest text-faint">
-              CD-ROM drive
-            </div>
-            {!isos.length && (
-              <div className="px-1 pb-1 text-xs text-faint">No ISOs mounted.</div>
-            )}
-            {isos.map((i) => (
-              <button
-                key={i.id}
-                className="flex w-full items-center justify-between rounded px-1 py-1 text-left text-xs text-dim hover:bg-panel-2 hover:text-ink"
-                onClick={() => {
-                  setOpen(false);
-                  void onInsert(i.id);
-                }}
-              >
-                <span className="truncate">{i.name}</span>
-                <Badge tone="dim">{Math.round(i.bytes / 1048576)}M</Badge>
-              </button>
-            ))}
-            <label className="mt-1 block cursor-pointer rounded border border-dashed border-line-strong px-2 py-1.5 text-center text-[11px] text-faint hover:border-accent hover:text-ink">
-              + Insert .iso file
-              <input
-                type="file"
-                accept=".iso"
-                hidden
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void onUpload(f);
-                  setOpen(false);
-                }}
-              />
-            </label>
-            <button
-              className="mt-1 w-full rounded px-1 py-1 text-left text-xs text-dim hover:bg-panel-2 hover:text-ink"
-              onClick={() => {
-                onEject();
-                setOpen(false);
-              }}
-            >
-              Eject drive
-            </button>
-          </div>
-        </>
-      )}
-    </div>
+    <span
+      title={title}
+      className="flex h-7 w-7 items-center justify-center rounded-md text-dim transition-colors hover:bg-panel-2 hover:text-ink"
+    >
+      {children}
+    </span>
   );
+}
+
+function ageStr(ts: number): string {
+  const m = Math.round((Date.now() - ts) / 60000);
+  if (m < 1) return "now";
+  if (m < 60) return `${m}m ago`;
+  return `${Math.round(m / 60)}h ago`;
 }

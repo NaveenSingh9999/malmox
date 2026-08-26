@@ -2,6 +2,8 @@ import type { Manifest } from "./types";
 
 export const FALLBACK_MANIFEST_URL = "/catalog.json";
 
+// Same-origin by default: /cdn/* is proxied by Vercel to the malmox-images
+// GitHub Release — zero CORS, zero third-party exposure in the browser.
 let manifestCache: Manifest | null = null;
 
 export async function loadManifest(): Promise<Manifest> {
@@ -12,22 +14,7 @@ export async function loadManifest(): Promise<Manifest> {
   return manifestCache;
 }
 
-export function resolveUrl(manifest: Manifest, path: string): string {
-  if (/^https?:/.test(path)) return path;
-  const base = manifest.baseUrls.releases.replace(/\/$/, "");
-  return `${base}/${path}`;
-}
-
-export async function verifyRemoteSha256(
-  url: string,
-  expected: string,
-): Promise<boolean> {
-  try {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return false;
-    const text = (await res.text()).trim();
-    return text.split(/\s+/)[0].toLowerCase() === expected.toLowerCase();
-  } catch {
-    return false;
-  }
+export function resolveUrl(base: string, path: string): string {
+  const b = (base || "/cdn").replace(/\/$/, "");
+  return `${b}/${path}`;
 }

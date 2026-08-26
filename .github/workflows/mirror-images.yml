@@ -1,0 +1,50 @@
+name: mirror-images
+# Downloads known-good public OS images, checksums them, and publishes to
+# NaveenSingh9999/malmox-images release "images-v1". The app fetches these
+# through its own /cdn same-origin Vercel proxy (no CORS anywhere).
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 7 * * 1" # weekly refresh
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch mirrors
+        run: |
+          mkdir -p dist
+          node - << 'EOF' > urls.txt
+          const m = require('./pipeline/mirror.json');
+          for (const x of m.mirrors) console.log(x.file + '\t' + x.url);
+          EOF
+          while IFS=$'\t' read -r file url; do
+            echo "::group::$file"
+            curl -fL --retry 3 -m 1800 -o "dist/$file" "$url" || echo "::warning::failed $file"
+            echo "::endgroup::"
+          done < urls.txt
+          for entry in $(node -pe 'require("./pipeline/mirror.json").optional.map(o=>o.file+"|"+o.url).join(" ")'); do
+            file="${entry%%|*}"; url="${entry#*|}"
+            curl -fL --retry 2 -m 900 -o "dist/$file" "$url" || echo "::notice::optional $file skipped"
+          done
+          ls -la dist/
+
+      - name: Checksums
+        run: cd dist && sha256sum ./* > SHA256SUMS && cat SHA256SUMS
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view images-v1 -R NaveenSingh9999/malmox-images >/dev/null 2>&1; then
+            gh release create images-v1 -R NaveenSingh9999/malmox-images \
+              --title "MalMox system images" \
+              --notes "Mirrored & built OS images. Served through MalMox /cdn proxy."
+          fi
+          gh release upload images-v1 dist/* -R NaveenSingh9999/malmox-images --clobber
