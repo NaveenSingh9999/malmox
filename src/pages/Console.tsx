@@ -398,7 +398,7 @@ export default function ConsolePage() {
   );
 }
 
-function downloadShot(engine: MalmoxEngine | null) {
+function downloadShot(engine: EmulatorEngine | null) {
   return () => {
     const img = engine?.screenshot();
     if (!img) return toast("error", "Screenshot needs the Display pane");

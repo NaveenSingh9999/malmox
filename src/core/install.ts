@@ -1,4 +1,4 @@
-import type { CatalogEntry, HardwareConfig, SystemMeta, AssetRole } from "./types";
+import type { CatalogEntry, HardwareConfig, SystemMeta, AssetRole, OsFamily } from "./types";
 import { DEFAULT_HW } from "./types";
 import { gunzip, sha256Hex } from "./binutil";
 import {

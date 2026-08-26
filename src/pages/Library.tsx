@@ -47,7 +47,7 @@ export default function LibraryPage() {
       <PageHeader
         title="Machines"
         description="Installed systems and their live configuration. Snapshots restore sessions instantly after a reload."
-        action={
+        actions={
           <Button size="sm" onClick={() => setShowImport(true)}>
             <Upload className="h-3 w-3" /> New from file
           </Button>
