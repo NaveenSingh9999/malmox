@@ -1,10 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
-    {
-      "source": "/cdn/:path*",
-      "destination": "https://github.com/NaveenSingh9999/malmox-images/releases/download/images-v1/:path*"
-    },
+    { "source": "/cdn/:path*", "destination": "/api/cdn?f=:path*" },
     { "source": "/((?!cdn/).*)", "destination": "/index.html" }
   ]
 }

@@ -1,7 +1,9 @@
 {
   "rev": 2,
   "generatedAt": "2026-08-26T00:00:00Z",
-  "baseUrls": { "releases": "/cdn" },
+  "baseUrls": {
+    "releases": "/cdn"
+  },
   "systems": [
     {
       "id": "buildroot-classic",
@@ -13,7 +15,12 @@
       "gui": false,
       "display": "serial",
       "boot": "iso",
-      "assets": [{ "role": "cdrom", "file": "buildroot-classic.iso" }],
+      "assets": [
+        {
+          "role": "cdrom",
+          "file": "buildroot-classic.iso"
+        }
+      ],
       "upstream": "copy.sh/v86 (Buildroot project)",
       "version": "2016.05"
     },
@@ -27,7 +34,12 @@
       "gui": false,
       "display": "serial",
       "boot": "iso",
-      "assets": [{ "role": "cdrom", "file": "buildroot-plus.iso" }],
+      "assets": [
+        {
+          "role": "cdrom",
+          "file": "buildroot-plus.iso"
+        }
+      ],
       "upstream": "copy.sh/v86 (Buildroot project)",
       "version": "2020"
     },
@@ -37,11 +49,16 @@
       "category": "linux",
       "family": "musl",
       "description": "Official Alpine virt ISO, i686. Boot to a live musl world with apk; install to disk with setup-alpine.",
-      "sizeMB": 62,
+      "sizeMB": 47,
       "gui": false,
       "display": "canvas",
       "boot": "iso",
-      "assets": [{ "role": "cdrom", "file": "alpine-virt-x86.iso" }],
+      "assets": [
+        {
+          "role": "cdrom",
+          "file": "alpine-virt-x86.iso"
+        }
+      ],
       "upstream": "alpinelinux.org official mirror",
       "version": "3.20.3"
     },
@@ -55,7 +72,12 @@
       "gui": true,
       "display": "canvas",
       "boot": "disk",
-      "assets": [{ "role": "hda", "file": "freedos.img" }],
+      "assets": [
+        {
+          "role": "hda",
+          "file": "freedos.img"
+        }
+      ],
       "upstream": "freedos.org (floppy image)",
       "version": "1.2"
     },
@@ -69,7 +91,12 @@
       "gui": true,
       "display": "canvas",
       "boot": "disk",
-      "assets": [{ "role": "hda", "file": "kolibri.img" }],
+      "assets": [
+        {
+          "role": "hda",
+          "file": "kolibri.img"
+        }
+      ],
       "upstream": "kolibrios.org",
       "version": "nightly"
     }
