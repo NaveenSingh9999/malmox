@@ -1,0 +1,73 @@
+{
+  "rev": 1,
+  "generatedAt": "2026-08-26T00:00:00Z",
+  "baseUrls": {
+    "releases": "https://github.com/malmox/images/releases/download/images-v1"
+  },
+  "systems": [
+    {
+      "os": "buildroot",
+      "label": "Buildroot Tiny",
+      "description": "Featherweight BusyBox Linux. Boots in seconds, ~10 MB download. Perfect first boot and smoke test.",
+      "family": "busybox",
+      "downloadMB": 11,
+      "diskMB": 67108864,
+      "ramMB": 128,
+      "bootSeconds": "10s",
+      "gui": false,
+      "url": "malmox-buildroot-2026.08.img.gz",
+      "sha256Url": "SHA256SUMS-buildroot.txt",
+      "version": "2026.08",
+      "bzimage": "kernels/buildroot-bzImage",
+      "initrd": "kernels/buildroot-initrd.img"
+    },
+    {
+      "os": "alpine",
+      "label": "Alpine Linux x86",
+      "description": "Security-first musl world with apk, Xfbdev desktop and jwm. Small, fast, complete.",
+      "family": "musl",
+      "downloadMB": 42,
+      "diskMB": 268435456,
+      "ramMB": 256,
+      "bootSeconds": "30s",
+      "gui": true,
+      "url": "malmox-alpine-3.20.img.gz",
+      "sha256Url": "SHA256SUMS-alpine.txt",
+      "version": "3.20",
+      "bzimage": "kernels/alpine-bzImage",
+      "initrd": "kernels/alpine-initrd.img"
+    },
+    {
+      "os": "debian",
+      "label": "Debian i386 (minbase)",
+      "description": "The universal OS. Minimal base + linux-686-pae kernel, real apt with the full Debian archive, jwm desktop.",
+      "family": "glibc",
+      "downloadMB": 78,
+      "diskMB": 536870912,
+      "ramMB": 256,
+      "bootSeconds": "60s",
+      "gui": true,
+      "url": "malmox-debian-trixie.img.gz",
+      "sha256Url": "SHA256SUMS-debian.txt",
+      "version": "trixie",
+      "bzimage": "kernels/debian-bzImage",
+      "initrd": "kernels/debian-initrd.img"
+    },
+    {
+      "os": "arch",
+      "label": "Arch Linux 32",
+      "description": "Rolling-release pacman on i686. Base system, syslinux, jwm desktop. The full Arch experience.",
+      "family": "pacman",
+      "downloadMB": 120,
+      "diskMB": 1073741824,
+      "ramMB": 512,
+      "bootSeconds": "90s",
+      "gui": true,
+      "url": "malmox-arch32-rolling.img.gz",
+      "sha256Url": "SHA256SUMS-arch.txt",
+      "version": "rolling",
+      "bzimage": "kernels/arch32-bzImage",
+      "initrd": "kernels/arch32-initrd.img"
+    }
+  ]
+}

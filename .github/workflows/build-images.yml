@@ -1,0 +1,104 @@
+name: build-images
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to attach artifacts to"
+        required: true
+        default: "images-v1"
+  schedule:
+    - cron: "0 6 1 * *" # monthly refresh
+
+permissions:
+  contents: write
+
+env:
+  TAG: images-v1
+
+jobs:
+  buildroot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Buildroot image
+        run: bash pipeline/buildroot/build.sh out/malmox-buildroot.img
+      - name: Package
+        run: |
+          mkdir -p dist
+          gzip -9 -c out/malmox-buildroot.img > dist/malmox-buildroot-${{ github.run_id }}.img.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: malmox-buildroot
+          path: dist/
+
+  alpine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Alpine x86 image
+        run: bash pipeline/alpine/build.sh out/malmox-alpine.img
+      - name: Package
+        run: |
+          mkdir -p dist
+          gzip -9 -c out/malmox-alpine.img > dist/malmox-alpine-${{ github.run_id }}.img.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: malmox-alpine
+          path: dist/
+
+  debian:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Debian i386 image
+        run: sudo bash pipeline/debian/build.sh out/malmox-debian.img
+      - name: Package
+        run: |
+          mkdir -p dist
+          gzip -9 -c out/malmox-debian.img > dist/malmox-debian-${{ github.run_id }}.img.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: malmox-debian
+          path: dist/
+
+  arch32:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable i386 binfmt
+        run: |
+          docker run --privileged --rm tonistiigi/binfmt --install i386,qemu-i386 2>/dev/null || \
+            sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user-static binfmt-support
+      - name: Build Arch Linux 32 image
+        run: sudo bash pipeline/arch32/build.sh out/malmox-arch32.img
+      - name: Package
+        run: |
+          mkdir -p dist
+          gzip -9 -c out/malmox-arch32.img > dist/malmox-arch32-${{ github.run_id }}.img.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: malmox-arch32
+          path: dist/
+
+  release:
+    needs: [buildroot, alpine, debian, arch32]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+      - name: Checksums + manifest + catalog
+        run: bash pipeline/release.sh artifacts/ dist/
+      - name: Ensure release exists
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "MalMox system images" --notes "Automated image build ${{ github.run_id }}"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload assets
+        run: gh release upload "$TAG" dist/* --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

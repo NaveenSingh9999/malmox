@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0b0c0f;
+  --color-panel: #101218;
+  --color-panel-2: #14161d;
+  --color-line: #1f2330;
+  --color-line-strong: #2c3140;
+  --color-ink: #e6e8ee;
+  --color-dim: #9aa0ae;
+  --color-faint: #5b6170;
+  --color-accent: #5e6ad2;
+  --color-accent-hover: #737ee0;
+  --color-ok: #4cb782;
+  --color-warn: #f2c94c;
+  --color-bad: #eb5757;
+  --font-mono: "JetBrains Mono", ui-monospace, "Cascadia Code", monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    sans-serif;
+  font-size: 14px;
+  letter-spacing: -0.01em;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(94, 106, 210, 0.35);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 5px;
+  border: 3px solid var(--color-bg);
+}
+
+input,
+select,
+button,
+textarea {
+  outline: none;
+}
+
+.xterm .xterm-viewport {
+  background-color: transparent !important;
+}
